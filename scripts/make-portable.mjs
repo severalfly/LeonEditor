@@ -10,7 +10,7 @@
  *
  * 用法：node scripts/make-portable.mjs
  */
-import { existsSync, mkdirSync, copyFileSync, writeFileSync, rmSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, copyFileSync, writeFileSync, rmSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -48,8 +48,37 @@ if (!exeName) {
 }
 
 const outDir = join(root, 'dist-portable')
+
+// 只清理目录内的文件，不删目录本身 —— 避免某些环境下删除目录被安全策略拦截。
+// 同时也避免误删用户放在这里的其他文件（只删脚本自己生成的那几个）。
 if (existsSync(outDir)) {
-  rmSync(outDir, { recursive: true, force: true })
+  // 运行时产生的数据/日志不能进发布包
+  for (const sub of ['data', 'log']) {
+    const d = join(outDir, sub)
+    if (existsSync(d)) {
+      try {
+        rmSync(d, { recursive: true, force: true })
+      } catch (e) {
+        console.warn(`[portable] 无法清理 ${sub}/: ${e.message}`)
+      }
+    }
+  }
+  for (const name of [
+    'LeonEditor.exe',
+    'WebView2Loader.dll',
+    'portable.dat',
+    'README.txt',
+    'panic.log'
+  ]) {
+    const f = join(outDir, name)
+    if (existsSync(f)) {
+      try {
+        unlinkSync(f)
+      } catch (e) {
+        console.warn(`[portable] 无法删除旧文件 ${name}: ${e.message}`)
+      }
+    }
+  }
 }
 mkdirSync(outDir, { recursive: true })
 
