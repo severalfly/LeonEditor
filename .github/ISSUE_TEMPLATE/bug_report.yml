@@ -1,0 +1,71 @@
+name: Bug 报告
+description: 报告一个问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先搜索是否已有相同 Issue。
+
+  - type: input
+    id: version
+    attributes:
+      label: Leon Editor 版本
+      description: 设置 → 关于 里可以看到
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows 版本
+      placeholder: "Windows 11 24H2 / Windows 10 22H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量具体，能稳定复现最好
+      placeholder: |
+        1. 打开 xxx 文件
+        2. 按 Ctrl+...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: |
+        如果有崩溃，请附上程序目录下 `data\log\frontend.log` 和 `panic.log` 的内容。
+        **注意**：如果日志里包含敏感信息（文件路径、SQL 内容），请自行脱敏。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图、相关文件类型、文件大小等
+    validations:
+      required: false

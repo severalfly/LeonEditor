@@ -1,0 +1,45 @@
+{
+  "name": "leon-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A fast, portable Windows text/code editor built with Tauri + Monaco",
+  "license": "Apache-2.0",
+  "author": "severalfly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/severalfly/LeonEditor.git"
+  },
+  "keywords": [
+    "editor",
+    "text-editor",
+    "code-editor",
+    "notepad",
+    "tauri",
+    "monaco",
+    "portable"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "build:fast": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --no-bundle",
+    "portable": "npm run build:fast && tauri build --no-bundle && node scripts/make-portable.mjs"
+  },
+  "dependencies": {
+    "@guolao/vue-monaco-editor": "^1.5.5",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "monaco-editor": "^0.52.2",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vue-tsc": "^2.2.0"
+  }
+}

@@ -1,0 +1,50 @@
+# ---------- 依赖 ----------
+node_modules/
+.pnpm-store/
+
+# ---------- 前端构建产物 ----------
+dist/
+dist-ssr/
+*.local
+
+# ---------- Rust / Tauri 构建产物 ----------
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# ---------- 便携版与安装包输出 ----------
+dist-portable/
+release/
+*.msi
+*.exe
+*.msix
+*.nsis.zip
+*.sig
+
+# ---------- 运行时数据（便携模式的 data 目录） ----------
+data/
+log/
+*.log
+panic.log
+portable.dat
+
+# ---------- 本机专属配置（含本机绝对路径，不提交） ----------
+build.env.sh
+build-local.*
+
+# ---------- 编辑器 / IDE ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------- 其他 ----------
+*.tmp
+*.bak
+_testdata/
+_screen.*
+_win.*
+_client.*
+_final.*

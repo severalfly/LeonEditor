@@ -1,0 +1,23 @@
+# mingw-w64 工具链配置（本机无 MSVC 时使用）
+#
+# ⚠ 这里的路径是占位符，请按你自己的 MSYS2 安装位置修改。
+#
+# 准备工具链：
+#   1. 下载 MSYS2：https://www.msys2.org/
+#   2. 在 MSYS2 终端执行：
+#        pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils
+#   3. 把下面的 C:\msys64 改成你的 MSYS2 实际安装路径
+#
+# 也可以不改本文件，改用环境变量覆盖（优先级更高）：
+#   CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER
+#   CARGO_TARGET_X86_64_PC_WINDOWS_GNU_AR
+
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\msys64\\mingw64\\bin\\x86_64-w64-mingw32-gcc.exe"
+ar = "C:\\msys64\\mingw64\\bin\\ar.exe"
+# 主线程栈加大到 8MB，避免深层递归解析时溢出
+rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+
+[env]
+# 让 windres / cc 等构建脚本能找到 mingw 的 bin 目录
+PATH = { value = "C:\\msys64\\mingw64\\bin", force = false }
