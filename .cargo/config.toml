@@ -18,6 +18,9 @@ ar = "C:\\msys64\\mingw64\\bin\\ar.exe"
 # 主线程栈加大到 8MB，避免深层递归解析时溢出
 rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
 
-[env]
-# 让 windres / cc 等构建脚本能找到 mingw 的 bin 目录
-PATH = { value = "C:\\msys64\\mingw64\\bin", force = false }
+# 注意：这里不要再写 [env] PATH 来注入 mingw 的 bin 目录。
+# Cargo 的 [env] 在 force = false 时，对**已存在**的变量不生效，
+# 而 PATH 一定已存在 —— 写了也没用，只会造成误解。
+# 正确做法是把 mingw 的 bin 加进 PATH 再调用 cargo，
+# build-portable.bat 与 dev.bat 已经这么做了。
+

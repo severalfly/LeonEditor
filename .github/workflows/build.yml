@@ -83,10 +83,23 @@ jobs:
           "ASSET_NAME=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Get-Item "$name.zip" | Select-Object Name, Length
 
+      - name: Resolve release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $path = ".github/release-notes/$tag.md"
+          if (Test-Path $path) {
+            "BODY_PATH=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "using curated notes: $path"
+          } else {
+            Write-Host "no curated notes for $tag, will auto-generate"
+          }
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ASSET_NAME }}
-          generate_release_notes: true
+          body_path: ${{ env.BODY_PATH }}
+          generate_release_notes: ${{ env.BODY_PATH == '' }}
           draft: false
           prerelease: false
