@@ -30,7 +30,7 @@ import {
   restoreDrafts,
   type Tab
 } from './lib/store'
-import { api, isTauri, type TreeNode, type SearchHit } from './lib/api'
+import { api, isTauri, type TreeNode, type SearchHit, type StartupArg } from './lib/api'
 import * as textops from './lib/textops'
 
 /* ---------------- 组件引用 ---------------- */
@@ -124,6 +124,29 @@ async function actionOpenFolder() {
       /* ignore */
     }
   }
+}
+
+/**
+ * 打开一批启动参数：文件夹就切换工作区，文件就开标签。
+ * 供「首次启动命令行参数」和「第二实例传来的参数」共用。
+ */
+async function openStartupArgs(args: StartupArg[]) {
+  if (!args.length) return
+  const files: string[] = []
+  for (const a of args) {
+    if (a.is_dir) {
+      await openFolder(a.path)
+    } else {
+      files.push(a.path)
+    }
+  }
+  for (const p of files) {
+    await openFile(p)
+  }
+  ;(window as any).__leon_log?.(
+    'startup-args',
+    JSON.stringify({ dirs: args.filter((a) => a.is_dir).map((a) => a.path), files })
+  )
 }
 
 async function actionSave() {
@@ -343,6 +366,14 @@ function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey
   const shift = e.shiftKey
   const alt = e.altKey
+
+  // ---- 软换行开关：Alt+Z（VS Code 同款快捷键）----
+  if (alt && !ctrl && !shift && e.code === 'KeyZ') {
+    e.preventDefault()
+    e.stopPropagation()
+    toggleWordWrap()
+    return
+  }
 
   // ---- 三键组合：Ctrl+Alt+Shift + 字母/数字 ----
   // 用 e.code 判断物理键位，避免不同键盘布局下 e.key 变化
@@ -747,7 +778,16 @@ onMounted(async () => {
         statusbarText: statusbar ? (statusbar.textContent ?? '').trim().slice(0, 120) : '',
         bodyBg: getComputedStyle(document.body).backgroundColor,
         openFiles: state.tabs.map((t) => t.name),
-        fontCheck: fontInfo
+        fontCheck: fontInfo,
+        // 软换行实际生效状态（从 Monaco 读，不是从配置读）
+        wordWrapOption: (() => {
+          try {
+            const ed = (window as any).__leon_editor
+            return ed ? ed.getOption(monaco.editor.EditorOption.wordWrap) : 'no-editor'
+          } catch {
+            return 'read-failed'
+          }
+        })()
       })
     )
   }, 2500)
@@ -758,12 +798,23 @@ onMounted(async () => {
   window.addEventListener('leon:reload-tab', (e: any) => reloadTab(e.detail.id))
   window.addEventListener('leon:reload-dirty-tabs', () => reloadDirtyTabs())
 
-  // 命令行启动参数中的文件（"用 Leon Editor 打开"场景）
+  // 第二个实例启动时，后端会把参数发过来（单实例模式）
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+    await listen<StartupArg[]>('leon:open-files', async (ev) => {
+      const args = ev.payload ?? []
+      await openStartupArgs(args)
+      // 窗口可能被最小化，后端已处理；这里再刷一次焦点
+      window.focus()
+    })
+  } catch (e: any) {
+    ;(window as any).__leon_log?.('single-instance-listen', String(e?.message ?? e))
+  }
+
+  // 首次启动时的命令行参数（"用 Leon Editor 打开"场景）
   try {
     const args = await api.startupArgs()
-    for (const p of args) {
-      await openFile(p)
-    }
+    if (args.length) await openStartupArgs(args)
   } catch {
     /* 无参数 */
   }
@@ -865,6 +916,15 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
         </button>
         <button class="icon-btn" title="在整个文件夹查找 (Ctrl+Shift+F)" @click="openFolderSearch">
           <Icon name="search-folder" :size="15" />
+        </button>
+        <div class="sep" />
+        <button
+          class="icon-btn"
+          :class="{ active: state.settings?.word_wrap }"
+          title="软换行 (Alt+Z)"
+          @click="toggleWordWrap"
+        >
+          <Icon name="wrap-text" :size="15" />
         </button>
         <div class="sep" />
         <button class="icon-btn" title="折叠全部" @click="editorRef?.foldAll()">

@@ -78,7 +78,7 @@ function reset() {
     font_size: 14,
     tab_size: 4,
     insert_spaces: true,
-    word_wrap: false,
+    word_wrap: true,
     show_minimap: true,
     show_line_numbers: true,
     highlight_current_line: true,
@@ -230,8 +230,9 @@ function reset() {
           </div>
 
           <div class="row">
-            <label>自动换行</label>
+            <label>软换行</label>
             <input v-model="local.word_wrap" type="checkbox" />
+            <span class="hint">快捷键 Alt+Z</span>
           </div>
 
           <div class="row">

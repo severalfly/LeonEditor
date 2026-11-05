@@ -80,7 +80,13 @@ const INDENT = '    '
         选中 {{ props.selected }} 字符
       </span>
 
-      <button v-if="tab" class="chip btn-chip" @click="emit('toggle-wordwrap')" :title="'自动换行'">
+      <button
+        v-if="tab"
+        class="chip btn-chip"
+        :class="{ on: state.settings?.word_wrap }"
+        @click="emit('toggle-wordwrap')"
+        title="软换行 (Alt+Z)"
+      >
         <Icon name="wrap-text" :size="12" />
         {{ state.settings?.word_wrap ? '换行开' : '换行关' }}
       </button>
@@ -163,6 +169,11 @@ const INDENT = '    '
 .btn-chip:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.btn-chip.on {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .dot {

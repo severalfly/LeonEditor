@@ -536,6 +536,14 @@ export async function applySettings(s: EditorSettings) {
       tabSize: s.tab_size,
       insertSpaces: s.insert_spaces,
       wordWrap: s.word_wrap ? 'on' : 'off',
+      // 与创建时保持一致：换行开时隐藏横向滚动条，关时恢复
+      scrollbar: {
+        vertical: 'auto',
+        horizontal: s.word_wrap ? 'hidden' : 'auto',
+        verticalScrollbarSize: 12,
+        horizontalScrollbarSize: 12,
+        useShadows: false
+      },
       minimap: { enabled: s.show_minimap },
       lineNumbers: s.show_line_numbers ? 'on' : 'off',
       renderLineHighlight: s.highlight_current_line ? 'line' : 'none'

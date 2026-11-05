@@ -119,6 +119,11 @@ export interface EditorSettings {
   sidebar_width: number
 }
 
+export interface StartupArg {
+  path: string
+  is_dir: boolean
+}
+
 export interface AppInfo {
   version: string
   config_dir: string
@@ -196,7 +201,7 @@ export const api = {
 
   saveSession: (session: any) => invoke<void>('save_session', { session }),
 
-  startupArgs: () => invoke<string[]>('startup_args'),
+  startupArgs: () => invoke<StartupArg[]>('startup_args'),
 
   logFrontend: (level: string, msg: string) =>
     invoke<void>('log_frontend', { level, msg }).catch(() => undefined),

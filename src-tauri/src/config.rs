@@ -34,7 +34,7 @@ impl Default for EditorSettings {
             font_size: 14.0,
             tab_size: 4,
             insert_spaces: true,
-            word_wrap: false,
+            word_wrap: true,
             show_minimap: true,
             show_line_numbers: true,
             highlight_current_line: true,
@@ -511,7 +511,7 @@ fn windows_fonts() -> Vec<FontInfo> {
         }
         let _ = GetDeviceCaps(hdc, LOGPIXELSY);
 
-        let mut lf = LogFontW {
+        let lf = LogFontW {
             lf_height: 0,
             lf_width: 0,
             lf_escaperment: 0,

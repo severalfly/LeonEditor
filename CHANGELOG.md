@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-05
+
+### 新增
+
+- **单实例模式**：同一时间只运行一个进程。再次双击 exe、或从资源管理器
+  「用 Leon Editor 打开」文件时，会复用已打开的窗口，把文件作为新标签打开，
+  并把窗口切到前台。
+  需要同时开多个独立窗口时，用 `LeonEditor.exe --new-instance` 启动。
+- **软换行开关 `Alt+Z`**：与 VS Code 一致的快捷键，另在工具栏和状态栏各有一个按钮。
+- 软换行默认开启，折行后保持原缩进（`wrappingIndent: same`）。
+- 换行策略改为 `advanced`，中文（CJK）文本按词折行，不会把字词从中间劈开。
+
+### 变更
+
+- 打包说明文件（README.txt）现在带版本号，并补充单实例与软换行说明。
+- 打包脚本从 `tauri.conf.json` 读取版本号，避免手写不一致。
+
 ## [0.1.0] - 2026-11-04
 
 首个公开版本。
@@ -54,5 +71,6 @@
 - Monaco Editor 0.52
 - Rust 后端：encoding_rs / rayon / grep-searcher / walkdir
 
-[Unreleased]: https://github.com/severalfly/LeonEditor/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/severalfly/LeonEditor/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/severalfly/LeonEditor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/severalfly/LeonEditor/releases/tag/v0.1.0

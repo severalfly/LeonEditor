@@ -10,13 +10,22 @@
  *
  * 用法：node scripts/make-portable.mjs
  */
-import { existsSync, mkdirSync, copyFileSync, writeFileSync, rmSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, copyFileSync, writeFileSync, rmSync, readdirSync, statSync, unlinkSync, readFileSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const targetName = process.env.TAURI_TARGET || 'x86_64-pc-windows-gnu'
 const exeNames = ['leon-editor.exe', 'LeonEditor.exe', 'leon_editor.exe']
+
+// 从 tauri.conf.json 读版本号，避免手写不一致
+let appVersion = '0.0.0'
+try {
+  const conf = JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'))
+  if (conf.version) appVersion = conf.version
+} catch {
+  /* 读不到就用占位符 */
+}
 
 const candidates = [
   join(root, 'src-tauri', 'target', targetName, 'release'),
@@ -104,13 +113,21 @@ writeFileSync(join(outDir, 'portable.dat'), 'LeonEditor portable mode\n')
 // 说明文件
 writeFileSync(
   join(outDir, 'README.txt'),
-  `Leon Editor - 便携版
+  `Leon Editor ${appVersion} - 便携版
 ================================
 
 这个目录可以直接复制到任何地方（U 盘、移动硬盘、另一台电脑）使用。
 
 【启动】
   双击 LeonEditor.exe
+
+【单实例模式】
+  同一时间只会运行一个窗口。再次双击 exe（或右键"用 Leon Editor 打开"
+  某个文件）时，会复用已打开的窗口，把文件作为新标签打开。
+
+  如果确实需要同时开两个独立窗口（比如对比两份文件），
+  用命令行加参数启动：
+      LeonEditor.exe --new-instance
 
 【为什么是便携版】
   同目录下的 portable.dat 是便携模式开关。只要这个文件存在，
@@ -137,7 +154,12 @@ writeFileSync(
   Ctrl+G            跳转到行
   Ctrl+B            显示/隐藏侧栏
   Ctrl+,            设置
+  Alt+Z             软换行开关
   Alt+鼠标拖动       多光标
+
+【软换行】
+  默认开启，长行按窗口宽度折行显示，不产生横向滚动条。
+  Alt+Z 或点工具栏/状态栏的换行图标可随时切换，设置里也能改。
 
 【文本处理（数据核对常用）】
   Ctrl+Alt+Shift+D  删除所有换行，合并为一行

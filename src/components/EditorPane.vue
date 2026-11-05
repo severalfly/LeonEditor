@@ -38,7 +38,6 @@ onMounted(async () => {
     cursorSmoothCaretAnimation: 'on',
     renderLineHighlight: state.settings?.highlight_current_line ? 'line' : 'none',
     lineNumbers: state.settings?.show_line_numbers ? 'on' : 'off',
-    wordWrap: state.settings?.word_wrap ? 'on' : 'off',
     tabSize: state.settings?.tab_size ?? 4,
     insertSpaces: state.settings?.insert_spaces ?? true,
     detectIndentation: false,
@@ -49,9 +48,17 @@ onMounted(async () => {
     folding: true,
     foldingHighlight: true,
     showFoldingControls: 'mouseover',
+    wordWrap: state.settings?.word_wrap ? 'on' : 'off',
+    // 续行保持与原文相同的缩进层级，代码折行后仍易读
+    wrappingIndent: 'same',
+    // advanced 策略对中文（CJK）断行更准确，不会把词从中间劈开
+    wrappingStrategy: 'advanced',
+    // 横向滚动条交给 Monaco 自己管：换行开启时内容宽度=视口宽度，它会自动隐藏
     scrollbar: {
       vertical: 'auto',
-      horizontal: 'auto',
+      // 换行开启时必须显式 hidden：Monaco 不会自动隐藏，
+      // 否则底部会白占一条 12px 的滚动条（实测确认）
+      horizontal: state.settings?.word_wrap ? 'hidden' : 'auto',
       verticalScrollbarSize: 12,
       horizontalScrollbarSize: 12,
       useShadows: false
@@ -74,6 +81,8 @@ onMounted(async () => {
 
   setEditorInstance(ed)
   decorations = ed.createDecorationsCollection([])
+  // 暴露给调试/自动化检测（只读用途，不影响功能）
+  ;(window as any).__leon_editor = ed
 
   // 光标变化上报
   ed.onDidChangeCursorPosition((e) => {
@@ -398,6 +407,8 @@ defineExpose({
         <div class="hint-row"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd><span>全局搜索</span></div>
         <div class="hint-row"><kbd>Ctrl</kbd><kbd>P</kbd><span>快速打开文件</span></div>
         <div class="hint-row"><kbd>Ctrl</kbd><kbd>G</kbd><span>跳转到行</span></div>
+        <div class="hint-row"><kbd>Alt</kbd><kbd>Z</kbd><span>软换行开关</span></div>
+        <div class="hint-row"><kbd>Ctrl</kbd><kbd>,</kbd><span>设置</span></div>
       </div>
       <div class="tip">把文件直接拖进窗口也能打开</div>
     </div>
