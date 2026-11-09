@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import Icon from './Icon.vue'
 import { state, applySettings, persistSettings } from '../lib/store'
+import { askConfirm } from '../lib/confirm'
 import { api, type FontInfo } from '../lib/api'
 
 const props = defineProps<{ show: boolean }>()
@@ -70,8 +71,16 @@ async function save() {
   emit('close')
 }
 
-function reset() {
-  if (!window.confirm('恢复默认设置？')) return
+async function reset() {
+  const choice = await askConfirm({
+    title: '恢复默认设置？',
+    message: '当前所有设置项会被重置为默认值。',
+    buttons: [
+      { label: '恢复默认', value: 'ok', kind: 'danger' },
+      { label: '取消', value: 'cancel', kind: 'default' }
+    ]
+  })
+  if (choice !== 'ok') return
   local.value = {
     theme: 'light',
     font_family: 'Cascadia Code, Consolas, Microsoft YaHei, monospace',

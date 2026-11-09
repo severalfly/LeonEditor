@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { state, showToast, activeTab } from '../lib/store'
+import { askConfirm } from '../lib/confirm'
 import { api } from '../lib/api'
 import type { SearchResult } from '../lib/api'
 
@@ -127,7 +128,16 @@ async function replaceAllLocal() {
     return
   }
   if (!state.findQuery) return
-  if (!window.confirm(`将在当前文件替换所有匹配，确定继续？`)) return
+  const c1 = await askConfirm({
+    title: '在当前文件全部替换？',
+    message: '替换后会立即写入磁盘，不能用 Ctrl+Z 撤销。',
+    detail: tab.path,
+    buttons: [
+      { label: '全部替换', value: 'ok', kind: 'danger' },
+      { label: '取消', value: 'cancel', kind: 'default' }
+    ]
+  })
+  if (c1 !== 'ok') return
   try {
     const report = await api.replaceInFiles({
       root: tab.path,
@@ -202,9 +212,15 @@ async function runFolderReplace() {
     ? state.searchResult.files.map((f: any) => f.path)
     : null
   const scope = files ? `${files.length} 个文件` : '整个文件夹'
-  if (!window.confirm(`将在 ${scope} 中替换「${state.findQuery}」→「${state.findReplace}」\n\n此操作直接写盘，不可撤销。确定继续？`)) {
-    return
-  }
+  const c2 = await askConfirm({
+    title: `在${scope}中全部替换？`,
+    message: `「${state.findQuery}」→「${state.findReplace}」\n\n此操作直接写盘，不可撤销。`,
+    buttons: [
+      { label: '全部替换', value: 'ok', kind: 'danger' },
+      { label: '取消', value: 'cancel', kind: 'default' }
+    ]
+  })
+  if (c2 !== 'ok') return
   busy.value = true
   try {
     const report = await api.replaceInFiles({

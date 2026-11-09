@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-09
+
+### 修复
+
+- **关闭有未保存修改的标签时，标签会先消失、然后才弹提示。**
+  原因是 `window.confirm` 在 WebView2 里会立即返回，原生对话框由宿主稍后绘制，
+  于是「关闭」先执行、提示后出现。
+  现在改用应用内自绘对话框（`src/lib/confirm.ts` + `ConfirmDialog.vue`），
+  await 到用户真正做出选择之后才动状态。
+- 同一个问题影响到的其他确认也一并换掉了：全部关闭、文件冲突覆盖、
+  跨文件全部替换、当前文件全部替换、恢复默认设置。
+  之前这些可能在你还没确认时就已执行。
+
+### 新增
+
+- 关闭未保存的标签时，现在给出**保存 / 不保存 / 取消**三个选项
+  （之前只有「确定放弃」和「取消」）。
+  未命名的新文件选「保存」会弹出另存为对话框，保存失败则不会关闭标签。
+- 全部关闭时同样支持「全部保存 / 全部不保存 / 取消」。
+
 ## [0.2.0] - 2026-11-05
 
 ### 新增
@@ -71,6 +91,7 @@
 - Monaco Editor 0.52
 - Rust 后端：encoding_rs / rayon / grep-searcher / walkdir
 
-[Unreleased]: https://github.com/severalfly/LeonEditor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/severalfly/LeonEditor/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/severalfly/LeonEditor/releases/tag/v0.2.1
 [0.2.0]: https://github.com/severalfly/LeonEditor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/severalfly/LeonEditor/releases/tag/v0.1.0

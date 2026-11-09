@@ -9,6 +9,7 @@ import SearchPane from './components/SearchPane.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import StatusBar from './components/StatusBar.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import * as monaco from 'monaco-editor'
 
 import {
@@ -27,6 +28,7 @@ import {
   getModelFor,
   tabKey,
   buildSessionSnapshot,
+  setSaveAsPicker,
   restoreDrafts,
   type Tab
 } from './lib/store'
@@ -740,6 +742,9 @@ onMounted(async () => {
   appReady.value = true
   window.addEventListener('keydown', onKeydown)
 
+  // 让 store 里的「关闭前保存」能用上另存为对话框
+  setSaveAsPicker(pickSaveAs)
+
   // 渲染自检：把关键 DOM 状态写入日志，便于打包后验证
   window.setTimeout(async () => {
     const el = document.getElementById('app')
@@ -1112,6 +1117,9 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
 
     <!-- 设置 -->
     <SettingsPanel :show="settingsVisible" @close="settingsVisible = false" />
+
+    <!-- 确认对话框（应用内自绘，保证「先问再动」的顺序） -->
+    <ConfirmDialog />
 
     <!-- Toast -->
     <Transition name="toast">

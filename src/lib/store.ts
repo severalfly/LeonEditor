@@ -1,6 +1,38 @@
 import { reactive, ref } from 'vue'
 import * as monaco from 'monaco-editor'
 import { api, type TreeNode, type EditorSettings, type AppInfo } from './api'
+import { askConfirm } from './confirm'
+
+/**
+ * 「另存为」文件选择器由 App 注入（store 里不能直接引 Tauri 对话框，
+ * 否则会出现循环依赖，也不利于在没有 Tauri 的环境里跑）。
+ */
+let saveAsPicker: ((defaultName?: string) => Promise<string | null>) | null = null
+
+export function setSaveAsPicker(fn: (defaultName?: string) => Promise<string | null>) {
+  saveAsPicker = fn
+}
+
+/**
+ * 保存指定标签。未命名的新文件会先弹「另存为」让用户选路径。
+ * 返回 true 表示确实写入了磁盘。
+ */
+export async function saveTabInteractive(tab: Tab): Promise<boolean> {
+  if (tab.binary) {
+    showToast('二进制文件不支持保存', 'error')
+    return false
+  }
+  if (!tab.path) {
+    if (!saveAsPicker) {
+      showToast('无法打开保存对话框', 'error')
+      return false
+    }
+    const p = await saveAsPicker(tab.name)
+    if (!p) return false
+    return saveTab(tab, p)
+  }
+  return saveTab(tab)
+}
 
 export interface Tab {
   id: string
@@ -350,8 +382,28 @@ export async function closeTab(id: string, force = false): Promise<boolean> {
   const tab = state.tabs[idx]
 
   if (tab.dirty && !force) {
-    const ok = window.confirm(`「${tab.name}」有未保存的修改，确定关闭吗？\n\n点击「确定」放弃修改并关闭。`)
-    if (!ok) return false
+    const choice = await askConfirm({
+      title: `「${tab.name}」有未保存的修改`,
+      message: tab.path
+        ? '关闭后，这些修改会丢失。'
+        : '这是一个还没有保存到磁盘的新文件，关闭后内容会丢失。',
+      detail: tab.path ?? undefined,
+      buttons: [
+        { label: '保存', value: 'save', kind: 'primary' },
+        { label: '不保存', value: 'discard', kind: 'danger' },
+        { label: '取消', value: 'cancel' }
+      ]
+    })
+
+    // 取消 / Esc / 点遮罩：保持原样，什么都不改
+    if (!choice || choice === 'cancel') return false
+
+    if (choice === 'save') {
+      const saved = await saveTabInteractive(tab)
+      // 保存失败，或用户在「另存为」里点了取消 —— 不关闭
+      if (!saved) return false
+    }
+    // discard：直接往下走，放弃修改
   }
 
   const key = tabKey(tab)
@@ -388,14 +440,32 @@ export async function closeTab(id: string, force = false): Promise<boolean> {
 
 export async function closeAllTabs() {
   const ids = state.tabs.map((t) => t.id)
-  for (const id of ids) {
-    const t = state.tabs.find((x) => x.id === id)
-    if (t?.dirty) {
-      const ok = window.confirm(`「${t.name}」有未保存的修改，全部关闭将放弃修改。继续？`)
-      if (!ok) return
-      break
+  const dirtyTabs = state.tabs.filter((t) => t.dirty)
+
+  if (dirtyTabs.length > 0) {
+    const names = dirtyTabs.map((t) => t.name).join('、')
+    const choice = await askConfirm({
+      title: `有 ${dirtyTabs.length} 个文件未保存`,
+      message: '全部关闭后，这些修改会丢失。',
+      detail: names,
+      buttons: [
+        { label: '全部保存', value: 'save', kind: 'primary' },
+        { label: '全部不保存', value: 'discard', kind: 'danger' },
+        { label: '取消', value: 'cancel' }
+      ]
+    })
+
+    if (!choice || choice === 'cancel') return
+
+    if (choice === 'save') {
+      for (const t of dirtyTabs) {
+        const ok = await saveTabInteractive(t)
+        // 任何一个存不下来（比如另存为被取消）就中止，避免丢内容
+        if (!ok) return
+      }
     }
   }
+
   for (const id of ids) {
     await closeTab(id, true)
   }
@@ -470,8 +540,16 @@ export async function saveTab(tab: Tab, saveAsPath?: string): Promise<boolean> {
   } catch (e: any) {
     const msg = String(e?.message ?? e)
     if (msg.includes('CONFLICT')) {
-      const ok = window.confirm('文件已被其他程序修改，是否覆盖？')
-      if (ok) {
+      const choice = await askConfirm({
+        title: '文件已被其他程序修改',
+        message: '磁盘上的内容和你上次打开时不一样了。覆盖会丢掉外部改动。',
+        detail: tab.path ?? undefined,
+        buttons: [
+          { label: '覆盖', value: 'overwrite', kind: 'danger' },
+          { label: '取消', value: 'cancel', kind: 'default' }
+        ]
+      })
+      if (choice === 'overwrite') {
         tab.modified = null
         return saveTab(tab, saveAsPath)
       }
