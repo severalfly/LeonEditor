@@ -24,6 +24,10 @@ pub struct EditorSettings {
     pub search_include: String,
     pub search_exclude: String,
     pub sidebar_width: u32,
+    /// 自定义快捷键：动作 id → 组合键。只存被改过的项。
+    /// 加 serde default 保证 0.2.x 的旧配置（没有这个字段）也能正常读出来。
+    #[serde(default)]
+    pub keybindings: std::collections::HashMap<String, String>,
 }
 
 impl Default for EditorSettings {
@@ -46,6 +50,7 @@ impl Default for EditorSettings {
             search_include: String::new(),
             search_exclude: String::new(),
             sidebar_width: 260,
+            keybindings: std::collections::HashMap::new(),
         }
     }
 }

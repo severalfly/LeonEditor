@@ -117,6 +117,8 @@ export interface EditorSettings {
   search_include: string
   search_exclude: string
   sidebar_width: number
+  /** 自定义快捷键：只存被改过的动作（动作 id → 组合键） */
+  keybindings: Record<string, string>
 }
 
 export interface StartupArg {
@@ -181,6 +183,10 @@ export const api = {
     invoke<SaveResult>('convert_encoding', { path, from, to }),
 
   pathExists: (path: string) => invoke<boolean>('path_exists', { path }),
+
+  /** 在目录里新建一个空文件，名字冲突时自动加序号；返回最终路径 */
+  createFile: (dir: string, baseName: string) =>
+    invoke<string>('create_file', { dir, baseName }),
 
   listDir: (dir: string) => invoke<TreeNode[]>('list_dir', { dir }),
 

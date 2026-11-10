@@ -2,6 +2,7 @@ import { reactive, ref } from 'vue'
 import * as monaco from 'monaco-editor'
 import { api, type TreeNode, type EditorSettings, type AppInfo } from './api'
 import { askConfirm } from './confirm'
+import { applyBindings } from './keymap'
 
 /**
  * 「另存为」文件选择器由 App 注入（store 里不能直接引 Tauri 对话框，
@@ -593,12 +594,62 @@ export function toggleExpand(node: TreeNode) {
   }
 }
 
+/** 重新读取某个目录的子项（原地替换，不影响其它已展开节点） */
+export async function refreshDir(dirPath: string) {
+  try {
+    const children = await api.listDir(dirPath)
+    if (state.tree && state.tree.path === dirPath) {
+      state.tree.children = children
+      return
+    }
+    const found = findNode(state.tree, dirPath)
+    if (found) found.children = children
+  } catch (e: any) {
+    showToast(String(e?.message ?? e), 'error')
+  }
+}
+
+function findNode(node: TreeNode | null, path: string): TreeNode | null {
+  if (!node) return null
+  if (node.path === path) return node
+  for (const c of node.children ?? []) {
+    const hit = findNode(c, path)
+    if (hit) return hit
+  }
+  return null
+}
+
+/**
+ * 在根目录新建一个空文件并打开它。
+ * 供「文件树空白处双击」使用：名字冲突会自动加序号，不会覆盖已有文件。
+ */
+export async function createFileInRoot(baseName = '新建文件.txt') {
+  if (!state.rootFolder) {
+    showToast('请先打开一个文件夹', 'info')
+    return null
+  }
+  try {
+    const created = await api.createFile(state.rootFolder, baseName)
+    await refreshDir(state.rootFolder)
+    state.expandedPaths.add(state.rootFolder)
+    const tab = await openFile(created)
+    showToast(`已新建 ${created.split(/[\\/]/).pop()}`, 'success')
+    return tab
+  } catch (e: any) {
+    showToast(String(e?.message ?? e), 'error')
+    return null
+  }
+}
+
 /* ---------------- 设置 ---------------- */
 
 export async function applySettings(s: EditorSettings) {
   state.settings = s
   state.sidebarWidth = s.sidebar_width
   document.documentElement.dataset.theme = s.theme
+
+  // 快捷键：设置一加载就生效，不需要重启
+  applyBindings(s.keybindings ?? {})
 
   // 主题注册在 monaco-setup 里，这里只需切换；编辑器还没创建时也先设好
   try {

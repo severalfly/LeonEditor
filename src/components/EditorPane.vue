@@ -106,25 +106,9 @@ onMounted(async () => {
     if (pos) emit('cursor', { line: pos.lineNumber, col: pos.column, selected: count })
   })
 
-  // 快捷键：Ctrl+S
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    emit('save-request')
-  })
-
-  // Ctrl+F 交给外部面板处理
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => {
-    window.dispatchEvent(new CustomEvent('leon:open-find'))
-  })
-
-  // Ctrl+H
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH, () => {
-    window.dispatchEvent(new CustomEvent('leon:open-replace'))
-  })
-
-  // Ctrl+Shift+F 全局搜索
-  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
-    window.dispatchEvent(new CustomEvent('leon:open-folder-search'))
-  })
+  // 应用级快捷键（Ctrl+S / Ctrl+F / Ctrl+H / Ctrl+Shift+F …）统一由
+  // App.vue 在 window 捕获阶段处理，这里**不要**再注册一遍：
+  // 否则用户把快捷键改掉之后，旧组合键仍会被 Monaco 拦下来执行，改动等于没生效。
 
   // 首次设置默认 model
   if (activeTab()) {

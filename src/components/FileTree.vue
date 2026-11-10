@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import TreeNodeRow from './TreeNodeRow.vue'
-import { state, toggleExpand } from '../lib/store'
+import { state, toggleExpand, createFileInRoot } from '../lib/store'
 import type { TreeNode } from '../lib/api'
 
 const props = defineProps<{
@@ -32,6 +32,20 @@ const openPaths = computed(() => state.tabs.map((t) => t.path).filter(Boolean) a
 function onCtx(e: MouseEvent, node: TreeNode) {
   emit('context-menu', { x: e.clientX, y: e.clientY, node })
 }
+
+/**
+ * 双击文件树空白区域 → 在根目录新建文件。
+ * 点在任意一行（.row）上都不算空白，避免误触发。
+ */
+function onBlankDblClick(e: MouseEvent) {
+  if (!state.rootFolder) return
+  const t = e.target as HTMLElement | null
+  if (!t) return
+  if (t.closest('.row') || t.closest('.root-header')) return
+  e.preventDefault()
+  e.stopPropagation()
+  createFileInRoot()
+}
 </script>
 
 <template>
@@ -47,7 +61,7 @@ function onCtx(e: MouseEvent, node: TreeNode) {
       <div class="tiny">Ctrl+K 然后 Ctrl+O 打开文件夹</div>
     </div>
 
-    <div v-else class="tree-body">
+    <div v-else class="tree-body" @dblclick="onBlankDblClick">
       <TreeNodeRow
         v-for="node in rootChildren"
         :key="node.path"

@@ -34,6 +34,8 @@ import {
 } from './lib/store'
 import { api, isTauri, type TreeNode, type SearchHit, type StartupArg } from './lib/api'
 import * as textops from './lib/textops'
+import { keymapState, findActionForEvent } from './lib/keymap'
+import { formatText } from './lib/format'
 
 /* ---------------- 组件引用 ---------------- */
 const editorRef = ref<InstanceType<typeof EditorPane> | null>(null)
@@ -362,42 +364,109 @@ function transformToSqlIn() {
   showToast(`已转为 IN 格式，共 ${n} 个值`, 'success')
 }
 
-/* ---------------- 快捷键 ---------------- */
+/* ---------------- 格式化（Ctrl+Alt+J） ---------------- */
 
-function onKeydown(e: KeyboardEvent) {
-  const ctrl = e.ctrlKey || e.metaKey
-  const shift = e.shiftKey
-  const alt = e.altKey
-
-  // ---- 软换行开关：Alt+Z（VS Code 同款快捷键）----
-  if (alt && !ctrl && !shift && e.code === 'KeyZ') {
-    e.preventDefault()
-    e.stopPropagation()
-    toggleWordWrap()
+/**
+ * 有选区 → 只格式化选区；无选区 → 格式化整个文档。
+ *
+ * 先交给 Monaco 的 formatSelection / formatDocument，但 Monaco 独立版对
+ * SQL、纯文本**没有内置格式化器**，这两个 action 会静默什么都不做。
+ * 所以执行后要比对文本有没有变化，没变化就走内置兜底（JSON / SQL），
+ * 其它语言则明确告诉用户没有格式化器，而不是让他以为按键失效。
+ */
+async function actionFormat() {
+  const ed = editorRef.value?.getEditor()
+  const model = ed?.getModel()
+  if (!ed || !model) {
+    showToast('请先打开一个文件', 'error')
+    return
+  }
+  if (model.getValue().length === 0) {
+    showToast('没有可格式化的内容', 'info')
     return
   }
 
-  // ---- 三键组合：Ctrl+Alt+Shift + 字母/数字 ----
-  // 用 e.code 判断物理键位，避免不同键盘布局下 e.key 变化
-  if (ctrl && alt && shift) {
-    if (e.code === 'KeyD') {
-      e.preventDefault()
-      transformRemoveNewlines()
-      return
-    }
-    if (e.code === 'KeyL') {
-      e.preventDefault()
-      transformToSqlIn()
-      return
-    }
-    // 数字 7：主键盘 Digit7 和小键盘 Numpad7 都支持
-    if (e.code === 'Digit7' || e.code === 'Numpad7') {
-      e.preventDefault()
-      transformRemoveAmpersand()
-      return
-    }
+  const sel = ed.getSelection()
+  const hasSel = !!sel && !sel.isEmpty()
+  const wholeBefore = model.getValue()
+
+  const actionId = hasSel ? 'editor.action.formatSelection' : 'editor.action.formatDocument'
+  try {
+    await ed.getAction(actionId)?.run()
+  } catch {
+    /* provider 内部抛错（例如 JSON 语法错误）时继续走兜底 */
   }
 
+  if (model.getValue() !== wholeBefore) {
+    showToast(`已格式化（${hasSel ? '选区' : '全文'}）`, 'success')
+    return
+  }
+
+  // Monaco 什么都没做 —— 用内置兜底
+  const range = hasSel && sel ? sel : model.getFullModelRange()
+  const before = model.getValueInRange(range)
+  const res = formatText(before, model.getLanguageId())
+
+  if (!res.supported) {
+    showToast('当前语言没有可用的格式化器（内置支持 JSON、SQL）', 'info')
+    return
+  }
+  if (!res.ok) {
+    showToast(res.message ?? '格式化失败', 'info')
+    return
+  }
+  if (res.text === before) {
+    showToast('内容已经是格式化后的样子', 'info')
+    return
+  }
+
+  ed.executeEdits('leon-format', [{ range, text: res.text, forceMoveMarkers: true }])
+  if (hasSel) {
+    // 选区格式化后保持选中，方便继续操作
+    const startOffset = model.getOffsetAt(range.getStartPosition())
+    const endPos = model.getPositionAt(startOffset + res.text.length)
+    ed.setSelection(
+      new monaco.Selection(range.startLineNumber, range.startColumn, endPos.lineNumber, endPos.column)
+    )
+  }
+  ed.focus()
+  showToast(`已格式化（${hasSel ? '选区' : '全文'}）`, 'success')
+}
+
+/* ---------------- 快捷键分发（全部走 keymap 注册表） ---------------- */
+
+const actionHandlers: Record<string, () => void> = {
+  'open-file': () => actionOpenFile(),
+  'open-folder': () => actionOpenFolder(),
+  'new-file': actionNew,
+  'save': () => actionSave(),
+  'save-as': () => actionSaveAs(),
+  'close-tab': actionCloseTab,
+  'next-tab': () => cycleTab(1),
+  'prev-tab': () => cycleTab(-1),
+  'quick-open': () => {
+    quickOpenVisible.value = true
+  },
+  'find': () => openFind(false),
+  'replace': () => openFind(true),
+  'folder-search': openFolderSearch,
+  'goto-line': () => actionGotoLine(),
+  'toggle-sidebar': toggleSidebar,
+  'settings': () => {
+    settingsVisible.value = true
+  },
+  'toggle-wordwrap': toggleWordWrap,
+  'format': () => actionFormat(),
+  'transform-remove-newlines': transformRemoveNewlines,
+  'transform-remove-ampersand': transformRemoveAmpersand,
+  'transform-sql-in': transformToSqlIn
+}
+
+function onKeydown(e: KeyboardEvent) {
+  // 设置面板正在录制快捷键：这里完全让位，否则按键会被主窗口先吃掉
+  if (keymapState.recording) return
+
+  // Esc 是硬编码的：它不是可配置动作，只是关面板 / 关菜单
   if (e.key === 'Escape') {
     if (quickOpenVisible.value) {
       quickOpenVisible.value = false
@@ -413,76 +482,15 @@ function onKeydown(e: KeyboardEvent) {
     }
   }
 
-  if (ctrl && !shift && e.key.toLowerCase() === 'o') {
-    e.preventDefault()
-    actionOpenFile()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'k') {
-    e.preventDefault()
-    actionOpenFolder()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'n') {
-    e.preventDefault()
-    actionNew()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 's') {
-    e.preventDefault()
-    actionSave()
-    return
-  }
-  if (ctrl && shift && e.key.toLowerCase() === 's') {
-    e.preventDefault()
-    actionSaveAs()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'w') {
-    e.preventDefault()
-    actionCloseTab()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'p') {
-    e.preventDefault()
-    quickOpenVisible.value = true
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'g') {
-    e.preventDefault()
-    actionGotoLine()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'b') {
-    e.preventDefault()
-    toggleSidebar()
-    return
-  }
-  if (ctrl && shift && e.key.toLowerCase() === 'f') {
-    e.preventDefault()
-    openFolderSearch()
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'f') {
-    e.preventDefault()
-    openFind(false)
-    return
-  }
-  if (ctrl && !shift && e.key.toLowerCase() === 'h') {
-    e.preventDefault()
-    openFind(true)
-    return
-  }
-  if (ctrl && e.key === ',') {
-    e.preventDefault()
-    settingsVisible.value = true
-    return
-  }
-  if (ctrl && e.key === 'Tab') {
-    e.preventDefault()
-    cycleTab(shift ? -1 : 1)
-    return
-  }
+  const action = findActionForEvent(e)
+  if (!action) return
+  const handler = actionHandlers[action.id]
+  if (!handler) return
+
+  // 捕获阶段就拦下来：既阻止浏览器默认行为，也避免 Monaco 重复处理
+  e.preventDefault()
+  e.stopPropagation()
+  handler()
 }
 
 function cycleTab(dir: number) {
@@ -496,6 +504,11 @@ function cycleTab(dir: number) {
 
 function openCtxMenu(payload: { x: number; y: number; node?: TreeNode; tab?: Tab; kind: any }) {
   ctxMenu.value = { ...payload }
+}
+
+/** 右键菜单别超出窗口底部 */
+function clampMenuY(y: number) {
+  return Math.max(4, Math.min(y, window.innerHeight - 260))
 }
 
 async function ctxCopyPath() {
@@ -613,6 +626,9 @@ function endResize() {
 
 onMounted(async () => {
   document.documentElement.dataset.theme = 'light'
+
+  // 调试/自动化入口：只读地暴露全局状态（标签数、设置等），方便验证
+  ;(window as any).__leon_state = state
 
   // 日志桥：把前端信息写到 exe 同目录 log/frontend.log
   ;(window as any).__leon_log = (level: string, msg: string) => {
@@ -740,7 +756,8 @@ onMounted(async () => {
   }
 
   appReady.value = true
-  window.addEventListener('keydown', onKeydown)
+  // 捕获阶段监听：先于 Monaco 自己的 keybinding 处理，避免同一个键被两处执行
+  window.addEventListener('keydown', onKeydown, true)
 
   // 让 store 里的「关闭前保存」能用上另存为对话框
   setSaveAsPicker(pickSaveAs)
@@ -830,7 +847,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onKeydown, true)
   saveSessionNow()
 })
 
@@ -1073,7 +1090,7 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
     <div
       v-if="ctxMenu"
       class="ctx-menu"
-      :style="{ left: ctxMenu.x + 'px', top: Math.min(ctxMenu.y, window.innerHeight - 260) + 'px' }"
+      :style="{ left: ctxMenu.x + 'px', top: clampMenuY(ctxMenu.y) + 'px' }"
       @click.stop
     >
       <template v-if="ctxMenu.kind === 'file'">

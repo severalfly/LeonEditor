@@ -1,9 +1,23 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import { state, applySettings, persistSettings } from '../lib/store'
 import { askConfirm } from '../lib/confirm'
 import { api, type FontInfo } from '../lib/api'
+import {
+  keyActions,
+  KEY_GROUPS,
+  keymapState,
+  formatKeys,
+  keysFromEvent,
+  findConflict,
+  sameBinding,
+  setKeys,
+  resetKeys,
+  resetAllKeys,
+  applyBindings,
+  collectOverrides
+} from '../lib/keymap'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -19,8 +33,10 @@ watch(
   async (v) => {
     if (v && state.settings) {
       local.value = JSON.parse(JSON.stringify(state.settings))
+      if (!local.value.keybindings) local.value.keybindings = {}
       showFontList.value = false
       fontFilter.value = ''
+      stopRecord()
       if (fonts.value.length === 0) {
         fontsLoading.value = true
         try {
@@ -31,6 +47,8 @@ watch(
           fontsLoading.value = false
         }
       }
+    } else {
+      stopRecord()
     }
   }
 )
@@ -66,10 +84,105 @@ function clearFont() {
 
 async function save() {
   if (!local.value) return
+  stopRecord()
+  // 保存时把当前生效的绑定收进配置（只存改过的项）
+  local.value.keybindings = collectOverrides()
   await applySettings(local.value)
   await persistSettings()
   emit('close')
 }
+
+/** 关闭（取消）：运行时快捷键还原到已保存的版本，避免「取消」却留下改动 */
+function cancel() {
+  stopRecord()
+  applyBindings(state.settings?.keybindings ?? {})
+  emit('close')
+}
+
+/* ---------------- 快捷键自定义 ---------------- */
+
+const recordingId = ref<string | null>(null)
+const recordError = ref('')
+
+const groupedActions = computed(() =>
+  KEY_GROUPS.map((g) => ({ group: g, items: keyActions.filter((a) => a.group === g) })).filter(
+    (g) => g.items.length > 0
+  )
+)
+
+function startRecord(id: string) {
+  recordingId.value = id
+  recordError.value = ''
+  keymapState.recording = true
+}
+
+function stopRecord() {
+  recordingId.value = null
+  recordError.value = ''
+  keymapState.recording = false
+}
+
+function toggleRecord(id: string) {
+  if (recordingId.value === id) stopRecord()
+  else startRecord(id)
+}
+
+/** 录制态下的按键捕获（window 捕获阶段，先于 Monaco 拿到） */
+function onRecordKey(e: KeyboardEvent) {
+  if (!recordingId.value) return
+  // 注意：只 stopPropagation 挡不住同在 window 捕获阶段注册的其它监听
+  // （App.vue 的快捷键分发就是那个），必须 stopImmediatePropagation
+  e.preventDefault()
+  e.stopImmediatePropagation()
+
+  if (e.key === 'Escape') {
+    stopRecord()
+    return
+  }
+
+  const keys = keysFromEvent(e)
+  if (!keys) {
+    recordError.value = '请按下字母 / 数字 / 功能键（不能只有修饰键）'
+    return
+  }
+  // 至少含 Ctrl 或 Alt，避免把普通输入吃掉
+  if (!/(^|\+)ctrl(\+|$)/.test(keys) && !/(^|\+)alt(\+|$)/.test(keys)) {
+    recordError.value = '必须包含 Ctrl 或 Alt（否则会占用正常输入）'
+    return
+  }
+
+  const conflict = findConflict(keys, recordingId.value)
+  if (conflict) {
+    recordError.value = `与「${conflict.label}」冲突（${formatKeys(conflict.keys)}），已拒绝`
+    return
+  }
+
+  setKeys(recordingId.value, keys)
+  if (local.value) local.value.keybindings = collectOverrides()
+  stopRecord()
+}
+
+function resetOne(id: string) {
+  stopRecord()
+  resetKeys(id)
+  if (local.value) local.value.keybindings = collectOverrides()
+}
+
+function resetAllBindings() {
+  stopRecord()
+  resetAllKeys()
+  if (local.value) local.value.keybindings = collectOverrides()
+}
+
+onMounted(() => {
+  // 组件先于 App 挂载，所以这个捕获监听排在 App 的清空监听之前
+  window.addEventListener('keydown', onRecordKey, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onRecordKey, true)
+  stopRecord()
+})
 
 async function reset() {
   const choice = await askConfirm({
@@ -98,17 +211,19 @@ async function reset() {
     ensure_final_newline: false,
     search_include: '',
     search_exclude: '',
-    sidebar_width: 260
+    sidebar_width: 260,
+    keybindings: {}
   }
+  resetAllBindings()
 }
 </script>
 
 <template>
-  <div v-if="show && local" class="modal-mask" @click.self="emit('close')">
+  <div v-if="show && local" class="modal-mask" @click.self="cancel">
     <div class="modal settings-modal">
       <div class="modal-header">
         <span>设置</span>
-        <button class="icon-btn" @click="emit('close')"><Icon name="close" :size="14" /></button>
+        <button class="icon-btn" @click="cancel"><Icon name="close" :size="14" /></button>
       </div>
 
       <div class="modal-body">
@@ -279,6 +394,57 @@ async function reset() {
           </div>
         </div>
 
+        <div class="group">
+          <div class="group-title">快捷键</div>
+
+          <div class="kb-note">
+            点「修改」后按下新的组合键（需包含 <kbd>Ctrl</kbd> 或 <kbd>Alt</kbd>），立即生效；
+            点「保存」后写入配置，下次启动依然有效。
+            编辑器自带的快捷键（撤销、多光标、缩进、折叠等）由 Monaco 管理，不在此列表中。
+          </div>
+
+          <div v-for="g in groupedActions" :key="g.group" class="kb-group">
+            <div class="kb-group-label">{{ g.group }}</div>
+            <div
+              v-for="a in g.items"
+              :key="a.id"
+              class="kb-row"
+              :data-action-id="a.id"
+              :data-keys="a.keys"
+            >
+              <span class="kb-label">
+                {{ a.label }}
+                <span v-if="a.desc" class="kb-desc">{{ a.desc }}</span>
+              </span>
+              <span class="kb-keys" :class="{ recording: recordingId === a.id }">
+                <template v-if="recordingId === a.id">按下组合键…</template>
+                <template v-else>{{ formatKeys(a.keys) }}</template>
+              </span>
+              <button
+                class="btn tiny"
+                :data-rec="a.id"
+                @click="toggleRecord(a.id)"
+              >
+                {{ recordingId === a.id ? '取消' : '修改' }}
+              </button>
+              <button
+                class="btn tiny"
+                :disabled="sameBinding(a.keys, a.defaultKeys)"
+                @click="resetOne(a.id)"
+              >
+                默认
+              </button>
+            </div>
+          </div>
+
+          <div v-if="recordError" class="kb-error">{{ recordError }}</div>
+
+          <div class="kb-footer">
+            <button class="btn tiny" data-kb-reset-all @click="resetAllBindings">全部恢复默认</button>
+            <span class="hint">共 {{ keyActions.length }} 个可自定义动作</span>
+          </div>
+        </div>
+
         <div v-if="state.appInfo" class="group info-group">
           <div class="group-title">关于</div>
           <div class="info-line">
@@ -300,7 +466,7 @@ async function reset() {
       <div class="modal-footer">
         <button class="btn" @click="reset">恢复默认</button>
         <div style="flex: 1" />
-        <button class="btn" @click="emit('close')">取消</button>
+        <button class="btn" @click="cancel">取消</button>
         <button class="btn primary" @click="save">保存</button>
       </div>
     </div>
@@ -546,5 +712,119 @@ input[type='checkbox'] {
   text-align: center;
   font-size: 12px;
   color: var(--text-faint);
+}
+
+/* ---------- 快捷键 ---------- */
+
+.kb-note {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.kb-note kbd {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.kb-group {
+  margin-bottom: 8px;
+}
+
+.kb-group-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.3px;
+  padding: 4px 0 2px;
+}
+
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 2px 0;
+  border-top: 1px solid var(--border);
+}
+
+.kb-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.kb-desc {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  opacity: 0.85;
+}
+
+.kb-keys {
+  flex-shrink: 0;
+  min-width: 118px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+
+.kb-keys.recording {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-family: var(--font-ui);
+  animation: kb-pulse 1s ease-in-out infinite;
+}
+
+@keyframes kb-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.btn.tiny {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.btn.tiny:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.kb-error {
+  font-size: 11.5px;
+  color: var(--danger);
+  padding: 4px 0 2px;
+}
+
+.kb-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
 }
 </style>

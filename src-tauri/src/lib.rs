@@ -149,6 +149,7 @@ pub fn run() {
             document::list_encodings,
             document::convert_encoding,
             document::path_exists,
+            document::create_file,
             // 目录树
             fs_tree::list_dir,
             fs_tree::list_tree,

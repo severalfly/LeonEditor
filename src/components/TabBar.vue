@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick } from 'vue'
 import Icon from './Icon.vue'
-import { state, dirtyLabel, closeTab, type Tab } from '../lib/store'
+import { state, dirtyLabel, closeTab, createUntitled, getEditorInstance, type Tab } from '../lib/store'
 
 const emit = defineEmits<{
   (e: 'closed-all'): void
@@ -27,11 +27,30 @@ function onWheel(e: WheelEvent) {
   const el = e.currentTarget as HTMLElement
   el.scrollLeft += e.deltaY
 }
+
+/**
+ * 双击标签栏的空白区域 → 新建未命名标签（等价 Ctrl+N）。
+ * 必须排除点在标签本身上的情况，否则双击标签会误建新文件。
+ */
+function onBlankDblClick(e: MouseEvent) {
+  const t = e.target as HTMLElement | null
+  if (!t) return
+  // .tab / .tab-name / .tab-close 及其子元素都算「点在标签上」
+  if (t.closest('.tab')) return
+  e.preventDefault()
+  e.stopPropagation()
+  createUntitled()
+  // 新建后立即能打字：等 model 挂到编辑器上再聚焦
+  nextTick(() => {
+    const ed = getEditorInstance()
+    ed?.focus()
+  })
+}
 </script>
 
 <template>
   <div class="tabbar">
-    <div class="tabs" @wheel.passive="onWheel">
+    <div class="tabs" @wheel.passive="onWheel" @dblclick="onBlankDblClick">
       <div
         v-for="tab in state.tabs"
         :key="tab.id"

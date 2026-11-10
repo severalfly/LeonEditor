@@ -213,3 +213,42 @@ pub fn convert_encoding(path: String, from: String, to: String) -> Result<SaveRe
 pub fn path_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
+
+/// 在指定目录里新建一个空文件。
+///
+/// 名字冲突时自动加序号（新建文件.txt → 新建文件-2.txt → …），
+/// 用 create_new 保证不会覆盖已有文件（并发/重名都安全）。
+#[tauri::command]
+pub fn create_file(dir: String, base_name: String) -> Result<String, String> {
+    let d = PathBuf::from(&dir);
+    if !d.is_dir() {
+        return Err(format!("目录不存在: {dir}"));
+    }
+
+    let base = base_name.trim();
+    let base = if base.is_empty() { "新建文件.txt" } else { base };
+
+    // 拆成主名 + 扩展名，序号插在主名后面
+    let (stem, ext) = match base.rfind('.') {
+        Some(i) if i > 0 => (&base[..i], &base[i..]),
+        _ => (base, ""),
+    };
+
+    for n in 1..=9999u32 {
+        let name = if n == 1 {
+            format!("{stem}{ext}")
+        } else {
+            format!("{stem}-{n}{ext}")
+        };
+        let p = d.join(&name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+            Ok(_) => {
+                let canon = dunce::canonicalize(&p).unwrap_or(p);
+                return Ok(canon.to_string_lossy().to_string());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("创建文件失败 {name}: {e}")),
+        }
+    }
+    Err("同名文件过多，无法创建".to_string())
+}
