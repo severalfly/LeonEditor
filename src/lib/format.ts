@@ -17,6 +17,8 @@ export interface FormatResult {
   text: string
   /** 给用户看的提示 */
   message?: string
+  /** 语言未知时，由内容嗅探推断出的类型（已知语言不走嗅探，不带此字段） */
+  detected?: 'json' | 'sql'
 }
 
 /* ---------------- JSON ---------------- */
@@ -420,17 +422,87 @@ function formatSql(src: string): FormatResult {
   return { supported: true, ok: true, text: out }
 }
 
+/* ---------------- 内容嗅探 ---------------- */
+
+/** 以这些关键字开头的脚本按 SQL 处理（词边界、忽略大小写） */
+const SQL_START_KEYWORDS = new Set([
+  'SELECT',
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'WITH',
+  'CREATE',
+  'ALTER',
+  'DROP',
+  'TRUNCATE',
+  'SHOW',
+  'DESC',
+  'DESCRIBE',
+  'EXPLAIN',
+  'MERGE'
+])
+
+/** 跳过前导空白与 `--` / `/* *\/` 注释 */
+function stripLeadingComments(src: string): string {
+  let s = src
+  // 注释可能连续出现多层，循环剥到不能再剥为止
+  for (let guard = 0; guard < 500; guard++) {
+    const before = s
+    s = s.replace(/^\s+/, '')
+    if (s.startsWith('--')) {
+      const nl = s.search(/[\r\n]/)
+      s = nl < 0 ? '' : s.slice(nl)
+    } else if (s.startsWith('/*')) {
+      const end = s.indexOf('*/')
+      s = end < 0 ? '' : s.slice(end + 2)
+    }
+    if (s === before) break
+  }
+  return s
+}
+
+/**
+ * 按内容猜语言，只认得出 JSON / SQL，其余返回 null。
+ *
+ * 未命名文件的 model 语言恒为 plaintext，`.txt` 之类也没有格式化器，
+ * 所以「按了快捷键没反应」实际上是「语言不认识」。这里用内容兜一层。
+ * 注意：**不修改** model 的语言，高亮保持不变。
+ */
+export function detectLanguageByContent(text: string): 'json' | 'sql' | null {
+  const trimmed = (text ?? '').trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      JSON.parse(trimmed)
+      return 'json'
+    } catch {
+      /* 不是合法 JSON，继续看看是不是 SQL */
+    }
+  }
+
+  const head = stripLeadingComments(trimmed)
+  const m = head.match(/^([A-Za-z]+)/)
+  if (!m) return null
+  return SQL_START_KEYWORDS.has(m[1].toUpperCase()) ? 'sql' : null
+}
+
 /* ---------------- 入口 ---------------- */
 
 export function formatText(text: string, languageId: string): FormatResult {
   const lang = (languageId || '').toLowerCase()
   if (lang === 'json' || lang === 'jsonc') return formatJson(text)
   if (lang === 'sql') return formatSql(text)
+
+  // 未知语言（未命名文件的 plaintext、.txt、日志等）：先嗅探内容
+  const detected = detectLanguageByContent(text)
+  if (detected === 'json') return { ...formatJson(text), detected: 'json' }
+  if (detected === 'sql') return { ...formatSql(text), detected: 'sql' }
   return {
     supported: false,
     ok: false,
     text,
-    message: '当前语言没有可用的格式化器'
+    message: '无法识别内容类型（支持 SQL / JSON），未做修改'
   }
 }
 

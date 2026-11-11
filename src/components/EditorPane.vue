@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as monaco from 'monaco-editor'
 import { state, setEditorInstance, activeTab, getModelFor, tabKey, applySettings } from '../lib/store'
+import { createSearchRegex } from '../lib/search'
 
 const hostEl = ref<HTMLElement | null>(null)
 let ed: monaco.editor.IStandaloneCodeEditor | null = null
@@ -176,10 +177,13 @@ function runFind(opts: {
 
   localMatches = []
   const text = model.getValue()
+  // 与替换共用同一个 pattern 构造：全字匹配对中文也要生效（见 lib/search.ts）
+  const re = createSearchRegex(opts)
+  if (!re) {
+    clearHighlight()
+    return { count: 0, index: -1 }
+  }
   try {
-    let pattern = opts.regex ? opts.query : escapeRegExp(opts.query)
-    if (opts.wholeWord) pattern = `\\b(?:${pattern})\\b`
-    const re = new RegExp(pattern, opts.caseSensitive ? 'g' : 'gi')
     let m: RegExpExecArray | null
     let guard = 0
     while ((m = re.exec(text)) !== null) {
@@ -195,6 +199,7 @@ function runFind(opts: {
       if (++guard > 20000) break
     }
   } catch {
+    clearHighlight()
     return { count: 0, index: -1 }
   }
 
@@ -214,13 +219,19 @@ function runFind(opts: {
   return { count: localMatches.length, index: localMatches.length ? 0 : -1 }
 }
 
-function focusMatch(index: number) {
+/**
+ * 跳到第 index 个匹配。
+ *
+ * `focusEditor` 默认 false：查找面板里敲字 / 按 Enter 时**不能**把焦点抢到编辑器，
+ * 否则只打得出一个字符，后面全打进正文。只有明确的「去编辑这一处」动作才传 true。
+ */
+function focusMatch(index: number, focusEditor = false) {
   if (!ed || !localMatches.length) return
   const i = ((index % localMatches.length) + localMatches.length) % localMatches.length
   const range = localMatches[i]
   ed.setSelection(range)
   ed.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth)
-  ed.focus()
+  if (focusEditor) ed.focus()
 }
 
 function getMatchCount() {
@@ -239,10 +250,6 @@ function runLocalHighlight() {
     caseSensitive: state.findCaseSensitive,
     wholeWord: state.findWholeWord
   })
-}
-
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /* ---------------- 跳转到指定行 ---------------- */

@@ -207,9 +207,8 @@ function openFind(replace = false) {
   state.findVisible = true
   if (replace) state.replaceVisible = true
   if (state.findMode === 'folder') state.findMode = 'current'
-  nextTick(() => {
-    // FindPanel 内部会自己聚焦
-  })
+  // 面板已经打开时 findVisible 不会变化，靠这个计数让面板重新聚焦输入框
+  state.findFocusTick++
 }
 
 function openFolderSearch() {
@@ -407,8 +406,12 @@ async function actionFormat() {
   const before = model.getValueInRange(range)
   const res = formatText(before, model.getLanguageId())
 
+  // 未命名文件 / .txt 等没有语言标识的内容，靠内容嗅探兜底（不改 model 语言，不影响高亮）
+  const scope = hasSel ? '选区' : '全文'
+  const sniffed = res.detected ? `，已按 ${res.detected.toUpperCase()} 识别` : ''
+
   if (!res.supported) {
-    showToast('当前语言没有可用的格式化器（内置支持 JSON、SQL）', 'info')
+    showToast(res.message ?? '无法识别内容类型（支持 SQL / JSON），未做修改', 'info')
     return
   }
   if (!res.ok) {
@@ -416,7 +419,7 @@ async function actionFormat() {
     return
   }
   if (res.text === before) {
-    showToast('内容已经是格式化后的样子', 'info')
+    showToast(`内容已经是格式化后的样子${sniffed}`, 'info')
     return
   }
 
@@ -430,7 +433,7 @@ async function actionFormat() {
     )
   }
   ed.focus()
-  showToast(`已格式化（${hasSel ? '选区' : '全文'}）`, 'success')
+  showToast(`已格式化（${scope}${sniffed}）`, 'success')
 }
 
 /* ---------------- 快捷键分发（全部走 keymap 注册表） ---------------- */
@@ -1041,7 +1044,7 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
           />
           <FindPanel
             ref="findRef"
-            @find-local="onFindLocal"
+            :find-local="onFindLocal"
             @goto-match="onGotoMatch"
             @clear-local="onClearLocal"
             @folder-result="() => {}"

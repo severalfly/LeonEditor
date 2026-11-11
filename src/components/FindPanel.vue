@@ -5,9 +5,25 @@ import { state, showToast, activeTab } from '../lib/store'
 import { askConfirm } from '../lib/confirm'
 import { api } from '../lib/api'
 import type { SearchResult } from '../lib/api'
+import { replaceAllInModel, replaceOneInModel } from '../lib/search'
+
+const props = defineProps<{
+  /**
+   * 查询当前文件内的匹配数。
+   *
+   * 这里**必须**是函数 prop 而不是 emit：Vue 3 的 emit() 返回 undefined，
+   * 不会把父组件处理器的返回值传回来，之前用 emit 导致计数永远是 0，
+   * 面板一直显示「无匹配」、也不跳转到第一个匹配（正文高亮却是好的）。
+   */
+  findLocal: (opts: {
+    query: string
+    regex: boolean
+    caseSensitive: boolean
+    wholeWord: boolean
+  }) => number
+}>()
 
 const emit = defineEmits<{
-  (e: 'find-local', opts: { query: string; regex: boolean; caseSensitive: boolean; wholeWord: boolean }): number
   (e: 'goto-match', index: number): void
   (e: 'clear-local'): void
   (e: 'folder-result', result: SearchResult): void
@@ -41,6 +57,21 @@ watch(
   }
 )
 
+// 面板已经打开时再按 Ctrl+F：findVisible 不变，靠 tick 重新聚焦
+watch(
+  () => state.findFocusTick,
+  () => focusQuery()
+)
+
+function searchOpts() {
+  return {
+    query: state.findQuery,
+    regex: state.findRegex,
+    caseSensitive: state.findCaseSensitive,
+    wholeWord: state.findWholeWord
+  }
+}
+
 function runLocal(step = 0) {
   if (!state.findQuery) {
     localCount.value = 0
@@ -49,21 +80,33 @@ function runLocal(step = 0) {
     emit('clear-local')
     return
   }
-  const n = emit('find-local', {
-    query: state.findQuery,
-    regex: state.findRegex,
-    caseSensitive: state.findCaseSensitive,
-    wholeWord: state.findWholeWord
-  })
-  if (typeof n === 'number') localCount.value = n
+  const n = props.findLocal(searchOpts())
+  localCount.value = typeof n === 'number' ? n : 0
   if (localCount.value === 0) {
     statusText.value = '无匹配'
     localIndex.value = -1
+    // 旧高亮必须清掉，否则正文还留着上一轮的黄块
+    emit('clear-local')
     return
   }
   localIndex.value = step === 0 ? 0 : (localIndex.value + step + localCount.value) % localCount.value
   emit('goto-match', localIndex.value)
   statusText.value = `${localIndex.value + 1} / ${localCount.value}`
+}
+
+/** 替换之后只刷新计数，不移动选区（替换结果已经被选中了） */
+function refreshCountKeepSelection() {
+  if (!state.findQuery) return
+  const n = props.findLocal(searchOpts())
+  localCount.value = typeof n === 'number' ? n : 0
+  if (localCount.value === 0) {
+    localIndex.value = -1
+    statusText.value = '无匹配'
+    emit('clear-local')
+    return
+  }
+  localIndex.value = 0
+  statusText.value = `1 / ${localCount.value}`
 }
 
 let localTimer: number | undefined
@@ -88,81 +131,53 @@ function prev() {
   statusText.value = `${localIndex.value + 1} / ${localCount.value}`
 }
 
-/** 当前文件内替换 */
-async function replaceOne() {
+/** 当前文件内的替换：改的是编辑器里的 model，不动磁盘 */
+function canEditCurrent(): boolean {
   const tab = activeTab()
-  if (!tab?.path) {
-    showToast('请先保存文件再替换', 'error')
+  if (!tab) {
+    showToast('请先打开一个文件', 'error')
+    return false
+  }
+  if (tab.binary || tab.readOnly) {
+    showToast('当前文件只读，无法替换', 'error')
+    return false
+  }
+  return true
+}
+
+function replaceOne() {
+  if (!state.findQuery) return
+  if (!canEditCurrent()) return
+  const n = replaceOneInModel({ ...searchOpts(), replacement: state.findReplace })
+  if (n === 0) {
+    showToast('没有可替换的匹配', 'info')
     return
   }
-  if (!state.findQuery) return
-  // 借助 folder 搜索的单文件模式做替换更可靠（会保留编码）
-  try {
-    const report = await api.replaceInFiles({
-      root: tab.path,
-      query: state.findQuery,
-      replacement: state.findReplace,
-      is_regex: state.findRegex,
-      case_sensitive: state.findCaseSensitive,
-      whole_word: state.findWholeWord,
-      include: null,
-      exclude: null,
-      max_file_size: null,
-      files: [tab.path]
-    })
-    if (report.replacements > 0) {
-      showToast(`已替换 ${report.replacements} 处，需要重新加载文件`, 'success')
-      await reloadTab()
-    } else {
-      showToast('没有可替换的匹配', 'info')
-    }
-  } catch (e: any) {
-    showToast(String(e?.message ?? e), 'error')
-  }
+  showToast(`已替换 ${n} 处（可 Ctrl+Z 撤销）`, 'success')
+  refreshCountKeepSelection()
 }
 
 async function replaceAllLocal() {
-  const tab = activeTab()
-  if (!tab?.path) {
-    showToast('请先保存文件再替换', 'error')
-    return
-  }
   if (!state.findQuery) return
+  if (!canEditCurrent()) return
+  const tab = activeTab()!
   const c1 = await askConfirm({
     title: '在当前文件全部替换？',
-    message: '替换后会立即写入磁盘，不能用 Ctrl+Z 撤销。',
-    detail: tab.path,
+    message: `「${state.findQuery}」→「${state.findReplace}」\n\n只改编辑器里的内容，可以 Ctrl+Z 撤销；Ctrl+S 保存后才写入磁盘。`,
+    detail: tab.path ?? tab.name,
     buttons: [
       { label: '全部替换', value: 'ok', kind: 'danger' },
       { label: '取消', value: 'cancel', kind: 'default' }
     ]
   })
   if (c1 !== 'ok') return
-  try {
-    const report = await api.replaceInFiles({
-      root: tab.path,
-      query: state.findQuery,
-      replacement: state.findReplace,
-      is_regex: state.findRegex,
-      case_sensitive: state.findCaseSensitive,
-      whole_word: state.findWholeWord,
-      files: [tab.path]
-    })
-    if (report.replacements > 0) {
-      showToast(`已替换 ${report.replacements} 处`, 'success')
-      await reloadTab()
-    } else {
-      showToast('没有可替换的匹配', 'info')
-    }
-  } catch (e: any) {
-    showToast(String(e?.message ?? e), 'error')
+  const n = replaceAllInModel({ ...searchOpts(), replacement: state.findReplace })
+  if (n === 0) {
+    showToast('没有可替换的匹配', 'info')
+    return
   }
-}
-
-async function reloadTab() {
-  const tab = activeTab()
-  if (!tab?.path) return
-  window.dispatchEvent(new CustomEvent('leon:reload-tab', { detail: { id: tab.id } }))
+  showToast(`已替换 ${n} 处（可 Ctrl+Z 撤销）`, 'success')
+  refreshCountKeepSelection()
 }
 
 /** 全文件夹搜索 */

@@ -98,10 +98,13 @@ jobs:
           } else {
             Write-Host "no curated notes for $tag, will auto-generate"
           }
+          $ver = $tag.TrimStart('v')
+          "RELEASE_TITLE=Leon Editor $ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ env.RELEASE_TITLE }}
           files: ${{ env.ASSET_NAME }}
           body_path: ${{ env.BODY_PATH }}
           generate_release_notes: ${{ env.BODY_PATH == '' }}

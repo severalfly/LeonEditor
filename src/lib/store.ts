@@ -77,6 +77,11 @@ export const state = reactive({
   appInfo: null as AppInfo | null,
   /** 搜索面板状态 */
   findVisible: false,
+  /**
+   * 每次「打开查找」自增一次：面板已经打开时再按 Ctrl+F，
+   * findVisible 仍是 true，光靠它的 watcher 不会触发聚焦，用这个计数补上。
+   */
+  findFocusTick: 0,
   findMode: 'current' as 'current' | 'folder',
   findQuery: '',
   findReplace: '',
