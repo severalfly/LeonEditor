@@ -15,13 +15,13 @@ export function removeNewlines(text: string, joinWith = ' '): string {
 }
 
 /** 2. 自动删除 & 符号（连同紧邻的空格一起清理） */
-export function removeAmpersands(text: string): string {
+export function removeAmpersands(text: string, eol = '\n'): string {
   return text
     .split('&')
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
-    .join(' ')
-    .replace(/[ \t]{2,}/g, ' ')
+    .map((p) => p.replace(/[ \t]{2,}/g, ' '))
+    .join(eol)
 }
 
 export interface SqlInOptions {
@@ -52,7 +52,7 @@ export interface SqlInOptions {
  * 已存在的引号会被剥掉再加，避免出现 ''123''。
  */
 export function toSqlIn(text: string, opts: SqlInOptions = {}): string {
-  const { quote = true, onePerLine = true, chunkSize = 0 } = opts
+  const { quote = true, onePerLine = false, chunkSize = 0 } = opts
 
   // 按逗号 / 换行拆分，同时剥掉原有引号和多余空白
   const values = text
@@ -98,7 +98,7 @@ export function toSqlIn(text: string, opts: SqlInOptions = {}): string {
         const s = buildIn(c)
         return multiLine ? s : s
       })
-      .join('\nOR ')
+      .join(onePerLine ? '\nOR ' : ' OR ')
   }
 
   return buildIn(values)

@@ -54,6 +54,13 @@ const DEFS: Omit<KeyAction, 'keys'>[] = [
   { id: 'toggle-sidebar', label: '显示 / 隐藏侧栏', group: '视图', defaultKeys: 'ctrl+b' },
   { id: 'settings', label: '打开设置', group: '视图', defaultKeys: 'ctrl+comma' },
   { id: 'toggle-wordwrap', label: '软换行开关', group: '视图', defaultKeys: 'alt+z' },
+  {
+    id: 'toggle-markdown-preview',
+    label: 'Markdown 预览',
+    group: '视图',
+    defaultKeys: 'ctrl+alt+m',
+    desc: '右侧实时预览当前文件的 Markdown 渲染结果'
+  },
 
   // ---------- 编辑 ----------
   {
@@ -72,17 +79,31 @@ const DEFS: Omit<KeyAction, 'keys'>[] = [
   },
   {
     id: 'transform-remove-ampersand',
-    label: '删除 & 符号',
+    label: '把 & 替换为换行',
     group: '编辑',
     defaultKeys: 'ctrl+alt+shift+7',
-    desc: '顺带清理多余空格'
+    desc: '每段一行，同时清理行内多余空格'
   },
   {
     id: 'transform-sql-in',
     label: '转 SQL IN 格式',
     group: '编辑',
     defaultKeys: 'ctrl+alt+shift+l',
-    desc: '每行一个值，自动剥掉原有引号再加'
+    desc: '紧凑单行输出，多个值用逗号分隔'
+  },
+  {
+    id: 'minify-json',
+    label: 'JSON 压缩（选区或全文）',
+    group: '编辑',
+    defaultKeys: 'ctrl+alt+shift+j',
+    desc: '把 JSON 压成单行紧凑形式；有选区只处理选区，没有选区处理整个文档'
+  },
+  {
+    id: 'duplicate-lines',
+    label: '克隆当前行（整行复制一份）',
+    group: '编辑',
+    defaultKeys: 'ctrl+alt+shift+c',
+    desc: '有选区克隆选区覆盖的整行，无选区克隆光标所在行；副本插在原行下方'
   }
 ]
 

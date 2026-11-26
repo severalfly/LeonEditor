@@ -43,6 +43,27 @@ function formatJson(text: string): FormatResult {
   }
 }
 
+/** JSON 压缩：去掉所有不必要的空白，输出单行紧凑形式。 */
+export function minifyJson(text: string): FormatResult {
+  const trimmed = text.trim()
+  if (!trimmed) return { supported: true, ok: false, text, message: '没有可压缩的内容' }
+  try {
+    const value = JSON.parse(trimmed)
+    const out = JSON.stringify(value)
+    if (out === undefined) {
+      return { supported: true, ok: false, text, message: '顶层是 undefined，无法压缩' }
+    }
+    return { supported: true, ok: true, text: out }
+  } catch (e: any) {
+    return {
+      supported: true,
+      ok: false,
+      text,
+      message: `JSON 解析失败：${String(e?.message ?? e).slice(0, 120)}`
+    }
+  }
+}
+
 /* ---------------- SQL ---------------- */
 
 type TokType = 'word' | 'string' | 'comment' | 'symbol'

@@ -382,12 +382,30 @@ function restoreViewState() {
   editorInstance.focus()
 }
 
+/**
+ * 是否「空的未命名新文件」：还没保存到磁盘（path===null），且内容全空。
+ * 抽成纯函数便于测试；model 为 null（已释放）时也视为空。
+ * 内容只含空白字符视为空 —— 这正是用户「新建后删空了」的场景。
+ */
+export function isEmptyUntitled(
+  tab: Pick<Tab, 'path'>,
+  model: Pick<monaco.editor.ITextModel, 'getValue'> | null | undefined
+): boolean {
+  if (tab.path !== null) return false
+  return !model || model.getValue().trim().length === 0
+}
+
 export async function closeTab(id: string, force = false): Promise<boolean> {
   const idx = state.tabs.findIndex((t) => t.id === id)
   if (idx < 0) return true
   const tab = state.tabs[idx]
 
-  if (tab.dirty && !force) {
+  // 未命名（还没保存到磁盘）的新文件，如果内容已经全空，关闭时不必再问：
+  // 没有实际内容可丢失，弹「保存 / 不保存 / 取消」纯属打扰。
+  // 已经保存到磁盘的文件保持原逻辑（哪怕是空文件，也尊重 dirty 状态）。
+  const emptyUntitled = isEmptyUntitled(tab, models.get(tabKey(tab)))
+
+  if (tab.dirty && !emptyUntitled && !force) {
     const choice = await askConfirm({
       title: `「${tab.name}」有未保存的修改`,
       message: tab.path

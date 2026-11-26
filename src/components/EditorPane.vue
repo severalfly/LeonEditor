@@ -12,6 +12,7 @@ let decorations: monaco.editor.IEditorDecorationsCollection | null = null
 const emit = defineEmits<{
   (e: 'cursor', payload: { line: number; col: number; selected: number }): void
   (e: 'save-request'): void
+  (e: 'content-change', payload: string): void
 }>()
 
 onMounted(async () => {
@@ -106,6 +107,11 @@ onMounted(async () => {
     const pos = ed!.getPosition()
     if (pos) emit('cursor', { line: pos.lineNumber, col: pos.column, selected: count })
   })
+
+  // Markdown 预览：内容变化 / 切换标签时把全文推给主界面
+  const pushContent = () => emit('content-change', ed!.getModel()?.getValue() ?? '')
+  ed.onDidChangeModelContent(pushContent)
+  ed.onDidChangeModel(pushContent)
 
   // 应用级快捷键（Ctrl+S / Ctrl+F / Ctrl+H / Ctrl+Shift+F …）统一由
   // App.vue 在 window 捕获阶段处理，这里**不要**再注册一遍：
@@ -372,6 +378,56 @@ function applyTransform(fn: (text: string) => string): { ok: boolean; scope: 'se
   return { ok: true, scope: hasSelection ? 'selection' : 'document' }
 }
 
+/* ---------------- 克隆整行 ---------------- */
+
+/**
+ * 把当前行（或选区覆盖的整行）整体克隆一份，插在原内容下方。
+ * 用 executeEdits 进入撤销栈，Ctrl+Z 一步可回退；光标/选区落到副本上。
+ */
+function duplicateLines(): { ok: boolean; lines: number } {
+  if (!ed) return { ok: false, lines: 0 }
+  const model = ed.getModel()
+  if (!model) return { ok: false, lines: 0 }
+  const sel = ed.getSelection()
+  if (!sel) return { ok: false, lines: 0 }
+
+  if (model.getLineCount() === 1 && model.getLineContent(1) === '') {
+    return { ok: false, lines: 0 }
+  }
+
+  const startLine = sel.startLineNumber
+  let endLine = sel.endLineNumber
+  // 选区恰好停在下一行第 1 列时，不把那一整行算进来
+  if (endLine > startLine && sel.endColumn === 1) endLine -= 1
+
+  const lines: string[] = []
+  for (let n = startLine; n <= endLine; n++) lines.push(model.getLineContent(n))
+  const count = lines.length
+  const eol = model.getEOL()
+  const insertCol = model.getLineMaxColumn(endLine)
+  const text = eol + lines.join(eol)
+
+  ed.executeEdits('leon-duplicate-lines', [
+    {
+      range: new monaco.Range(endLine, insertCol, endLine, insertCol),
+      text,
+      forceMoveMarkers: true
+    }
+  ])
+
+  const newStart = endLine + 1
+  const col = Math.min(sel.startColumn, model.getLineMaxColumn(newStart))
+  if (sel.isEmpty()) {
+    ed.setPosition(new monaco.Position(newStart, col))
+  } else {
+    const newEnd = newStart + count - 1
+    const endCol = Math.min(sel.endColumn, model.getLineMaxColumn(newEnd))
+    ed.setSelection(new monaco.Selection(newStart, 1, newEnd, endCol))
+  }
+  ed.focus()
+  return { ok: true, lines: count }
+}
+
 defineExpose({
   runFind,
   focusMatch,
@@ -382,7 +438,8 @@ defineExpose({
   foldAll,
   unfoldAll,
   getEditor,
-  applyTransform
+  applyTransform,
+  duplicateLines
 })
 </script>
 

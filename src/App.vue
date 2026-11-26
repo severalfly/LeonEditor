@@ -11,6 +11,7 @@ import StatusBar from './components/StatusBar.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import * as monaco from 'monaco-editor'
+import MarkdownPreview from './components/MarkdownPreview.vue'
 
 import {
   state,
@@ -35,7 +36,7 @@ import {
 import { api, isTauri, type TreeNode, type SearchHit, type StartupArg } from './lib/api'
 import * as textops from './lib/textops'
 import { keymapState, findActionForEvent } from './lib/keymap'
-import { formatText } from './lib/format'
+import { formatText, minifyJson } from './lib/format'
 
 /* ---------------- 组件引用 ---------------- */
 const editorRef = ref<InstanceType<typeof EditorPane> | null>(null)
@@ -57,6 +58,21 @@ const cursor = ref({ line: 1, col: 1, selected: 0 })
 const encodingOptions = ref<{ id: string; label: string }[]>([])
 
 const appReady = ref(false)
+
+/* ---------------- Markdown 预览 ---------------- */
+const previewVisible = ref(false)
+const previewText = ref('')
+
+function refreshPreview() {
+  previewText.value = editorRef.value?.getEditor()?.getModel()?.getValue() ?? ''
+}
+function onContentChange(text: string) {
+  if (previewVisible.value) previewText.value = text
+}
+function togglePreview() {
+  previewVisible.value = !previewVisible.value
+  if (previewVisible.value) refreshPreview()
+}
 const noTauri = computed(() => !isTauri())
 
 /* ---------------- 文件对话框 ---------------- */
@@ -333,12 +349,13 @@ function transformRemoveNewlines() {
 }
 
 function transformRemoveAmpersand() {
-  const r = editorRef.value?.applyTransform((t) => textops.removeAmpersands(t))
+  const eol = editorRef.value?.getEditor()?.getModel()?.getEOL() ?? '\n'
+  const r = editorRef.value?.applyTransform((t) => textops.removeAmpersands(t, eol))
   if (!r?.ok) {
     showToast('没有可处理的内容', 'info')
     return
   }
-  showToast(`已删除 &（${r.scope === 'selection' ? '选区' : '全文'}）`, 'success')
+  showToast(`已把 & 替换为换行（${r.scope === 'selection' ? '选区' : '全文'}）`, 'success')
 }
 
 function transformToSqlIn() {
@@ -355,12 +372,12 @@ function transformToSqlIn() {
     showToast('没有可转换的值', 'error')
     return
   }
-  const r = editorRef.value?.applyTransform((t) => textops.toSqlIn(t))
+  const r = editorRef.value?.applyTransform((t) => textops.toSqlIn(t, { onePerLine: false }))
   if (!r?.ok) {
     showToast('没有可处理的内容', 'info')
     return
   }
-  showToast(`已转为 IN 格式，共 ${n} 个值`, 'success')
+  showToast(`已转为紧凑 IN 格式，共 ${n} 个值`, 'success')
 }
 
 /* ---------------- 格式化（Ctrl+Alt+J） ---------------- */
@@ -436,6 +453,48 @@ async function actionFormat() {
   showToast(`已格式化（${scope}${sniffed}）`, 'success')
 }
 
+/* ---------------- JSON 压缩（Ctrl+Alt+Shift+J） ---------------- */
+
+/**
+ * 有选区只压缩选区，没有选区压缩全文。
+ * 解析失败时明确提示，不改动编辑器内容（避免把非法 JSON 变成空串）。
+ */
+function actionMinifyJson() {
+  const ed = editorRef.value?.getEditor()
+  const model = ed?.getModel()
+  if (!ed || !model) {
+    showToast('请先打开一个文件', 'error')
+    return
+  }
+  const sel = ed.getSelection()
+  const src = sel && !sel.isEmpty() ? model.getValueInRange(sel) : model.getValue()
+  const r = minifyJson(src)
+  if (!r.ok) {
+    showToast(r.message ?? 'JSON 压缩失败', r.message?.includes('解析失败') ? 'error' : 'info')
+    return
+  }
+  const applied = editorRef.value?.applyTransform((t) => {
+    const v = minifyJson(t)
+    return v.ok && v.text !== undefined ? v.text : t
+  })
+  if (!applied?.ok) {
+    showToast('内容已经是紧凑格式', 'info')
+    return
+  }
+  showToast(`已压缩为单行 JSON（${applied.scope === 'selection' ? '选区' : '全文'}）`, 'success')
+}
+
+/* ---------------- 克隆整行（Ctrl+Alt+Shift+C） ---------------- */
+
+function actionDuplicateLines() {
+  const r = editorRef.value?.duplicateLines()
+  if (!r?.ok) {
+    showToast('没有可克隆的内容', 'info')
+    return
+  }
+  showToast('已克隆 ' + r.lines + ' 行', 'success')
+}
+
 /* ---------------- 快捷键分发（全部走 keymap 注册表） ---------------- */
 
 const actionHandlers: Record<string, () => void> = {
@@ -462,7 +521,10 @@ const actionHandlers: Record<string, () => void> = {
   'format': () => actionFormat(),
   'transform-remove-newlines': transformRemoveNewlines,
   'transform-remove-ampersand': transformRemoveAmpersand,
-  'transform-sql-in': transformToSqlIn
+  'transform-sql-in': transformToSqlIn,
+  'minify-json': actionMinifyJson,
+  'duplicate-lines': actionDuplicateLines,
+  'toggle-markdown-preview': togglePreview
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -952,6 +1014,15 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
           <Icon name="wrap-text" :size="15" />
         </button>
         <div class="sep" />
+        <button
+          class="icon-btn"
+          :class="{ active: previewVisible }"
+          title="Markdown 预览 (Ctrl+Alt+M)"
+          @click="togglePreview"
+        >
+          <Icon name="file" :size="15" />
+        </button>
+        <div class="sep" />
         <button class="icon-btn" title="折叠全部" @click="editorRef?.foldAll()">
           <Icon name="fold-all" :size="15" />
         </button>
@@ -1041,7 +1112,9 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
             ref="editorRef"
             @cursor="onCursor"
             @save-request="actionSave"
+            @content-change="onContentChange"
           />
+          <MarkdownPreview v-if="previewVisible" :text="previewText" />
           <FindPanel
             ref="findRef"
             :find-local="onFindLocal"
@@ -1160,6 +1233,7 @@ const sidebarWidthPx = computed(() => `${state.sidebarWidth}px`)
 </template>
 
 <style scoped>
+.editor-area > :first-child { flex: 1; min-width: 0; }
 .app {
   display: flex;
   flex-direction: column;

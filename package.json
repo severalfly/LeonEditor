@@ -1,7 +1,7 @@
 {
   "name": "leon-editor",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.4",
   "type": "module",
   "description": "A fast, portable Windows text/code editor built with Tauri + Monaco",
   "license": "Apache-2.0",
@@ -32,11 +32,14 @@
   "dependencies": {
     "@guolao/vue-monaco-editor": "^1.5.5",
     "@tauri-apps/plugin-dialog": "^2.8.4",
+    "dompurify": "^3.2.6",
+    "markdown-it": "^14.1.0",
     "monaco-editor": "^0.52.2",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.1",
+    "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "^5.7.3",
     "vite": "^6.0.11",
